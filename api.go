@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os/exec"
+	"flag"
 )
 
 type MSS map[string]string
@@ -64,18 +65,21 @@ func Reboot() {
 	cmd.Run()
 }
 
+var pollfreq = flag.Int("poll", 30, "Time in seconds to wait between polling")
+var rebtime = flag.Int("rebt", 5, "Time to sleep after detecting a failure before rebooting")
+
 func main() {
 	for {
 		st := GetGPUStatus()
 		for _,v := range st {
 			if v != "Alive" {
-				log.Println("Rebooting in 5 seconds...")
-				time.Sleep(time.Second * 5)
+				log.Printf("Rebooting in %d seconds...\n", *rebtime)
+				time.Sleep(time.Second * time.Duration(*rebtime))
 				Reboot()
 			}
 		}
 		av,rec := GetCurrentHashRate()
-		log.Printf("All GPU's healthy! Hashrate: [%fMhs,%fMhs] Sleeping 30s", rec,av)
-		time.Sleep(time.Second * 30)
+		log.Printf("All GPU's healthy! Hashrate: [%fMhs,%fMhs] Sleeping %ds", rec,av,*pollfreq)
+		time.Sleep(time.Second * time.Duration(*pollfreq))
 	}
 }
