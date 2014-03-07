@@ -8,6 +8,7 @@ import (
 	"log"
 	"os/exec"
 	"flag"
+	"os"
 )
 
 type MSS map[string]string
@@ -15,6 +16,8 @@ type MI map[string]interface{}
 
 type GPU struct {
 	Status string
+	Temperature float64
+	Hashrate float64 `json:"MHS av"`
 }
 
 type Summary struct {
@@ -27,14 +30,9 @@ type Response struct {
 	DEVS []*GPU
 }
 
-func GetGPUStatus() []string {
-	var out []string
+func GetGPUStatus() []*GPU {
 	devinf := MakeReqAlt(MSS{"command":"devs"})
-	for _,gpu := range devinf.DEVS {
-		status := gpu.Status
-		out = append(out, status)
-	}
-	return out
+	return devinf.DEVS
 }
 
 func GetCurrentHashRate() (float64, float64) {
@@ -69,14 +67,22 @@ var pollfreq = flag.Int("poll", 30, "Time in seconds to wait between polling")
 var rebtime = flag.Int("rebt", 5, "Time to sleep after detecting a failure before rebooting")
 
 func main() {
+	logfi,err := os.Create("mining.log")
+	if err != nil {
+		panic(err)
+	}
+	log.SetOutput(logfi)
+	defer logfi.Close()
 	for {
 		st := GetGPUStatus()
-		for _,v := range st {
-			if v != "Alive" {
+		for i,gpu := range st {
+			if gpu.Status != "Alive" {
+				log.Printf("GPU %d is %d.\n", i, gpu.Status)
 				log.Printf("Rebooting in %d seconds...\n", *rebtime)
 				time.Sleep(time.Second * time.Duration(*rebtime))
 				Reboot()
 			}
+			log.Printf("GPU %d: Temp %f Hashrate: %fMh/s\n", i, gpu.Temperature, gpu.Hashrate)
 		}
 		av,rec := GetCurrentHashRate()
 		log.Printf("All GPU's healthy! Hashrate: [%fMhs,%fMhs] Sleeping %ds", rec,av,*pollfreq)
