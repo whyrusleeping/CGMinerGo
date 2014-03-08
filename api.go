@@ -2,6 +2,7 @@ package main
 
 import (
 	"net"
+	"fmt"
 	"time"
 	"encoding/json"
 	"io/ioutil"
@@ -28,6 +29,7 @@ type Summary struct {
 type Response struct {
 	SUMMARY []*Summary
 	DEVS []*GPU
+	err error
 }
 
 func GetGPUStatus() []*GPU {
@@ -41,18 +43,32 @@ func GetCurrentHashRate() (float64, float64) {
 }
 
 func MakeReqAlt(req MSS) *Response {
+	response := new(Response)
 	con,err := net.Dial("tcp", "localhost:4028")
 	if err != nil {
-		panic(err)
+		response.err = err
+		log.Println(err)
+		return response
 	}
 	b,_ := json.Marshal(req)
-	con.Write(b)
-	out,_ := ioutil.ReadAll(con)
+	_,err = con.Write(b)
+	if err != nil {
+		response.err = err
+		log.Println(err)
+		return response
+	}
+	out,err := ioutil.ReadAll(con)
+	if err != nil {
+		response.err = err
+		log.Println(err)
+		return response
+	}
 	out = out[:len(out)-1]
-	response := new(Response)
 	err = json.Unmarshal(out, response)
 	if err != nil {
-		panic(err)
+		response.err = err
+		log.Println(err)
+		return response
 	}
 	return response
 }
@@ -63,18 +79,42 @@ func Reboot() {
 	cmd.Run()
 }
 
-var pollfreq = flag.Int("poll", 30, "Time in seconds to wait between polling")
-var rebtime = flag.Int("rebt", 5, "Time to sleep after detecting a failure before rebooting")
-
-func main() {
-	logfi,err := os.Create("mining.log")
+func SetLogger() *os.File {
+	name := ""
+	for i := 0; ; i++ {
+		name = fmt.Sprintf("mining.log.%d",i)
+		_,err := os.Stat(name)
+		if err != nil {
+			break
+		}
+	}
+	fmt.Printf("Logging to %s\n", name)
+	logfi,err := os.Create(name)
 	if err != nil {
 		panic(err)
 	}
 	log.SetOutput(logfi)
-	defer logfi.Close()
+	return logfi
+}
+
+var pollfreq = flag.Int("poll", 30, "Time in seconds to wait between polling")
+var rebtime = flag.Int("rebt", 5, "Time to sleep after detecting a failure before rebooting")
+
+func main() {
+	defer SetLogger().Close()
 	for {
 		st := GetGPUStatus()
+		if st == nil || len(st) == 0 {
+			log.Println("Failed to retrieve GPU info... trying again in 30 seconds...")
+			time.Sleep(time.Second * 30)
+			st = GetGPUStatus()
+			if st == nil || len(st) == 0 {
+				log.Println("Second attempt to get info failed... rebooting!")
+				time.Sleep(time.Second * 5)
+				Reboot()
+			}
+			log.Println("Got info back! Success!")
+		}
 		for i,gpu := range st {
 			if gpu.Status != "Alive" {
 				log.Printf("GPU %d is %d.\n", i, gpu.Status)
